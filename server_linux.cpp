@@ -1,5 +1,20 @@
 #include "httpCommunication.h"
+#include "logger/logger.h"
+
+#include "utils/utils.h"
+
 #include <thread>
+
+/* first, here is the signal handler */
+void catch_int(int sig_num)
+{
+    /* re-set the signal handler again to catch_int, for next time */
+    signal(SIGINT, catch_int);
+    /* and print the message */
+    printf("Don't do that");
+    fflush(stdout);
+}
+
 
 void quit(std::string& command, HTTP& inst)
 {
@@ -7,18 +22,21 @@ void quit(std::string& command, HTTP& inst)
     {
         std::cin >> command;
     }
+
     inst.~HTTP();
     exit(EXIT_SUCCESS);
 }
 
 int main()
 {
-    HTTP instance("127.0.0.1", 54124);
 
-    //long length = 0;
+    signal(SIGINT, catch_int);
+
+    HTTP instance("127.0.0.1", 54125);
+    Logger& log = Logger::instance();
     if(instance.start() == -1)
     {
-        printf("FAILURE EXIT\n");
+        log.LogMessage("FAILURE EXIT");
         exit(-1);
     }
 
@@ -26,7 +44,7 @@ int main()
     std::thread waiter(quit,std::ref(com),std::ref(instance));
 
     if(instance.createEpoll() != 0)
-        std::cout << "[HTTP SERVER] epoll creation failed..." << std::endl;
+        log.LogMessage("[HTTP SERVER] epoll creation failed...");
     
     while (true) 
     {
