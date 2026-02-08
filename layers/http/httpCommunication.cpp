@@ -1,4 +1,8 @@
 #include "httpCommunication.h"
+#include <cstring>
+#include <logger/logger.h>
+
+constexpr std::string_view DEBUG_TAG = "[HTTP]";
 
 std::string HTTP::readImageFile(std::string image_path) 
 {
@@ -100,9 +104,10 @@ void HTTP::sendImageToBrowser(std::string path)
     send(tcp->getConnection(), image_data_cstr, image_data_length, 0);
 }
 
-HTTP::HTTP(std::string ipAddr,int port)
+HTTP::HTTP(std::string_view ipAddr, uint16_t port)
 {
     tcp = std::make_unique<tcpServer>(ipAddr, port);
+    events.resize(MAX_EVENTS);
     std::cout<<"[HTTP SERVER] turning on"<<std::endl;
 }
 
@@ -131,11 +136,9 @@ int &HTTP::getSocket() const
 int HTTP::recieveRequest()
 {
     long read_value = read(tcp->getConnection(), buffer, 1024);
-#ifdef DEBUG
     printf("\n[HTTP request]----------------BEGIN---------------\n\n");
     printf("%s\n",buffer);
     printf("[HTTP request]----------------END-----------------\n\n");
-#endif
     return 0;
 }
 
@@ -215,43 +218,62 @@ int HTTP::createEpoll()
         exit(EXIT_FAILURE);
     }
 
+    std::memset(&event, 0, sizeof(event)); // Zero out the struct
     event.data.fd = getSocket();
     event.events = EPOLLIN; // Interested in read events
-    epoll_ctl(epoll_fd, EPOLL_CTL_ADD, getSocket(), &event);
+    if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, getSocket(), &event) == -1)
+    {
+         perror("[HTTP SERVER] epoll_ctl ADD listening socket error");
+         exit(EXIT_FAILURE);
+    }
+    Logger::instance().LogMessage(LogLevel::INFO, "Added listening socket " + std::to_string(getSocket()) + " to epoll", DEBUG_TAG);
     return 0;
 }
 
 int HTTP::epollWait()
 {
-    int num_events = epoll_wait(epoll_fd, events, MAX_EVENTS, -1);
-    if (num_events == -1) {
+    int num_events = epoll_wait(epoll_fd, events.data(), MAX_EVENTS, -1);
+    if (num_events == -1) 
+    {
+        if (errno == EINTR)
+            return 0;
         perror("[HTTP SERVER] epoll_wait error");
         exit(EXIT_FAILURE);
     }
 
-    for (int i = 0; i < num_events; ++i) {
+    for (int i = 0; i < num_events; ++i) 
+    {
+        Logger::instance().LogMessage(LogLevel::INFO, "Event [" + std::to_string(i) + "] FD=" + std::to_string(events[i].data.fd) + " Events=" + std::to_string(events[i].events), DEBUG_TAG);
+        
         if (events[i].data.fd == getSocket()) 
         {
             // New incoming connection
             int client_socket = acceptConnection();
-    
+            Logger::instance().LogMessage(LogLevel::INFO, "New client connected:" + std::to_string(client_socket), DEBUG_TAG);
+            
             struct epoll_event event;
+            std::memset(&event, 0, sizeof(event));
             event.data.fd = client_socket;
             event.events = EPOLLIN;
-            epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket, &event);
-        } else {
+            Logger::instance().LogMessage(LogLevel::INFO, "Adding client " + std::to_string(client_socket) + " to epoll", DEBUG_TAG);
+            if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, client_socket, &event) == -1) {
+                Logger::instance().LogMessage(LogLevel::ERROR, "Failed to add client to epoll: " + std::to_string(errno), DEBUG_TAG);
+            }
+            handleClient();
+        } 
+        else
+        {
             // Handle data from connected clients
             int client_socket = events[i].data.fd;
-            // ... read and process data from client_socket ...
+            Logger::instance().LogMessage(LogLevel::INFO, "Handling event for client: " + std::to_string(client_socket), DEBUG_TAG);
+            
             setClient(client_socket);
             
-            handleClient();
+            //handleClient();
 
-            // Modify event to listen for further data
-            struct epoll_event event;
-            event.data.fd = client_socket;
-            event.events = EPOLLIN;
-            epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_socket, &event);
+            // Note: handleClient closes the socket, so we don't need to modify epoll event 
+            // as closing automatically removes it (if it's the last reference).
+            // epoll_ctl(epoll_fd, EPOLL_CTL_MOD, client_socket, &event);
         }
     }
 }

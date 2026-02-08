@@ -8,7 +8,7 @@
 class tcpServer
 {
 public:
-    tcpServer(std::string addr, int port);
+    tcpServer(std::string_view addr, uint16_t port);
     ~tcpServer();
 
     int& getSocket();
@@ -23,8 +23,8 @@ public:
 private:
 
     int m_socket, connfd;
-    int port;
-    std::string ip_addres;
+    int m_port;
+    std::string m_ip_address;
     struct sockaddr_in server;
     int on = 1; //to make socket reusable
 };

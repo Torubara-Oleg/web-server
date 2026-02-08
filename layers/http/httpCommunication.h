@@ -1,6 +1,7 @@
 #include "http_tcpServer.h"
 #include "fsUtils.h"
 #include <memory>
+#include <vector>
 
 #define MAX_EVENTS 10000
 
@@ -14,7 +15,7 @@ enum class ResourceType
 class HTTP
 {
 public:
-    HTTP(std::string ipAddr, int port);
+    HTTP(std::string_view ipAddr, uint16_t port);
     ~HTTP();
 
     int start();
@@ -58,5 +59,5 @@ private:
     //epoll
     int epoll_fd;
     struct epoll_event event;
-    struct epoll_event events[MAX_EVENTS];
+    std::vector<struct epoll_event> events;
 };
